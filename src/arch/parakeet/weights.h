@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "kda_predictor.h"
 #include "transcribe.h"
 
 #include <cstdint>
@@ -146,6 +147,9 @@ struct ParakeetHParams {
     int32_t pred_n_layers = 0;
     int32_t pred_vocab    = 0;  // includes the +1 "start" / blank-row entry of the embed matrix
                                 // (raw token vocab size is pred_vocab - 1)
+
+    // stt.parakeet.predictor.kind = "kda" (Haas); disabled for the LSTM.
+    KdaHParams pred_kda;
 
     // Joint network. TDT and RNNT only; zero for CTC.
     int32_t     joint_hidden            = 0;
@@ -355,7 +359,8 @@ struct ParakeetPredictor {
         ggml_tensor * b  = nullptr;  // [4*pred_hidden]
     };
 
-    std::vector<LstmLayer> lstm;  // pred_n_layers entries
+    std::vector<LstmLayer> lstm;  // pred_n_layers entries (null slots for a KDA predictor)
+    KdaTensors             kda;   // KDA prediction network (hp.pred_kda.enabled)
 };
 
 struct ParakeetJoint {

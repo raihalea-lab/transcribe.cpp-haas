@@ -29,9 +29,11 @@
 
 #include "ggml-backend.h"
 #include "ggml.h"
+#include "kda_predictor.h"
 #include "transcribe.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -92,6 +94,11 @@ struct HostPredictor {
     ggml_backend_t        lstm_w_backend = nullptr;  // alloc-only; never compute'd
     ggml_backend_buffer_t lstm_w_buf     = nullptr;
     bool                  lstm_ready     = false;
+
+    // Set for a KDA prediction network (Haas, kda_predictor.h). `lstm` then
+    // keeps one empty entry per block, only so that lstm.size() stays the
+    // layer count the decoders size LstmState with.
+    std::unique_ptr<KdaPredictor> kda;
 
     HostPredictor() = default;
     ~HostPredictor();
@@ -191,6 +198,10 @@ struct LstmState {
     // h[layer] and c[layer] are each `pred_hidden` floats.
     std::vector<std::vector<float>> h;
     std::vector<std::vector<float>> c;
+
+    // KDA predictor state (kda_predictor.h); empty = start of sequence.
+    // Unused by the LSTM.
+    std::vector<float> kda;
 
     void reset(int n_layers, int pred_hidden);
 };

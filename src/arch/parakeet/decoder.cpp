@@ -433,10 +433,12 @@ struct PredGraph {
     int                        H     = 0;
     int                        L     = 0;
     bool                       ready = false;
+    std::unique_ptr<KdaGraph>  kda;  // KDA predictor: its graph replaces the LSTM one
 
     PredGraph() = default;
 
     ~PredGraph() {
+        kda.reset();  // its buffer lives on `backend`
         if (buf != nullptr) {
             safe_buffer_free(buf);
         }
@@ -457,7 +459,7 @@ struct PredGraph {
 // Returns false if the resident weights are absent or any ggml step fails
 // (→ hard decode error). n_threads is the resolved (>0) thread count.
 bool build_pred_graph(PredGraph & g, const HostPredictor & p, int n_threads) {
-    if (!p.lstm_ready) {
+    if (!p.lstm_ready && p.kda == nullptr) {
         return false;
     }
     const int H = p.pred_hidden;
@@ -481,6 +483,7 @@ bool build_pred_graph(PredGraph & g, const HostPredictor & p, int n_threads) {
             safe_backend_free(g.backend);
             g.backend = nullptr;
         }
+        g.kda.reset();
         g.x     = nullptr;
         g.graph = nullptr;
         g.ready = false;
@@ -522,6 +525,15 @@ bool build_pred_graph(PredGraph & g, const HostPredictor & p, int n_threads) {
         }
         // If unresolved (non-CPU exotic backend), g.tp stays null and each
         // graph_compute spawns a transient pool — correct, just less tuned.
+    }
+
+    if (p.kda != nullptr) {
+        g.kda = std::make_unique<KdaGraph>();
+        if (!build_kda_graph(*g.kda, *p.kda, g.backend)) {
+            return fail();
+        }
+        g.ready = true;
+        return true;
     }
 
     ggml_init_params ip{};
@@ -693,7 +705,7 @@ transcribe_status build_host_decoder_weights(const ParakeetModel & model, HostDe
     }
 
     out.predictor.lstm.assign(hp.pred_n_layers, HostLstmLayer{});
-    for (int i = 0; i < hp.pred_n_layers; ++i) {
+    for (int i = 0; i < hp.pred_n_layers && !hp.pred_kda.enabled; ++i) {
         const auto & lw = w.predictor.lstm[i];
         auto &       lh = out.predictor.lstm[i];
         if (!read_tensor_to_f32(lw.Wx, lh.Wx)) {
@@ -718,9 +730,19 @@ transcribe_status build_host_decoder_weights(const ParakeetModel & model, HostDe
         }
     }
 
+    if (hp.pred_kda.enabled) {
+        out.predictor.kda = std::make_unique<KdaPredictor>();
+        if (const transcribe_status st =
+                build_kda_predictor(hp.pred_kda, w.predictor.kda, hp.pred_hidden, *out.predictor.kda);
+            st != TRANSCRIBE_OK) {
+            log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "parakeet decoder: kda predictor build failed");
+            return st;
+        }
+    }
+
     // Make the predictor LSTM weights resident. Fatal: a failure means
     // the model cannot decode — fail fast at load.
-    if (!build_pred_weights(out.predictor)) {
+    if (!hp.pred_kda.enabled && !build_pred_weights(out.predictor)) {
         log_msg(TRANSCRIBE_LOG_LEVEL_ERROR, "parakeet decoder: predictor ggml weight build failed");
         return TRANSCRIBE_ERR_BACKEND;
     }
@@ -783,6 +805,7 @@ transcribe_status build_host_decoder_weights(const ParakeetModel & model, HostDe
 // ---------------------------------------------------------------------------
 
 void LstmState::reset(int n_layers, int pred_hidden) {
+    kda.clear();
     h.resize(static_cast<size_t>(n_layers));
     c.resize(static_cast<size_t>(n_layers));
     for (int layer = 0; layer < n_layers; ++layer) {
@@ -820,6 +843,10 @@ const float * predictor_step_ggml(const HostPredictor & predictor,
     } else {
         const size_t row_off = static_cast<size_t>(last_token) * static_cast<size_t>(H);
         std::memcpy(scratch_x.data(), predictor.embed_w.data() + row_off, static_cast<size_t>(H) * sizeof(float));
+    }
+
+    if (g.kda != nullptr) {
+        return kda_predictor_step(*predictor.kda, *g.kda, g.backend, scratch_x.data(), prev_state, new_state);
     }
 
     const size_t hb = static_cast<size_t>(H) * sizeof(float);
@@ -2451,7 +2478,8 @@ transcribe_status decode_rnnt_tree(const HostDecoderWeights &    w,
     if (d_enc != w.joint.d_enc || w.head_kind != HostHeadKind::RNNT) {
         return TRANSCRIBE_ERR_INVALID_ARG;
     }
-    if (!bias.active() || bias.tree.empty()) {
+    // The tree batches LSTM steps (BatchPredGraph); a KDA predictor decodes greedily.
+    if (!bias.active() || bias.tree.empty() || w.predictor.kda != nullptr) {
         return decode_rnnt_greedy(w, enc_out, T_enc, d_enc, n_threads, out_tokens, capture);
     }
 

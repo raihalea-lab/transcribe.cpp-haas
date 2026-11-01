@@ -300,6 +300,9 @@ transcribe_status read_parakeet_hparams(const gguf_context * gguf, ParakeetHPara
             st != TRANSCRIBE_OK) {
             return st;
         }
+        if (auto st = read_kda_hparams(gguf, hp.pred_kda); st != TRANSCRIBE_OK) {
+            return st;
+        }
 
         // Joint (TDT and RNNT only).
         if (auto st = read_required_u32_kv(gguf, "stt.parakeet.joint.hidden", kFamilyTag, hp.joint_hidden);
@@ -1013,7 +1016,14 @@ transcribe_status build_parakeet_weights(ggml_context *          ctx_meta,
         GET_LIN(weights.predictor.embed_w, "pred.embed.weight", pred_h, pred_v);
 
         weights.predictor.lstm.assign(hp.pred_n_layers, ParakeetPredictor::LstmLayer{});
-        for (int i = 0; i < hp.pred_n_layers; ++i) {
+        if (hp.pred_kda.enabled) {
+            if (auto st =
+                    load_kda_tensors(ctx_meta, hp.pred_kda, hp.pred_hidden, hp.pred_n_layers, weights.predictor.kda);
+                st != TRANSCRIBE_OK) {
+                return st;
+            }
+        }
+        for (int i = 0; i < hp.pred_n_layers && !hp.pred_kda.enabled; ++i) {
             auto &        l     = weights.predictor.lstm[i];
             // Wx/Wh both project from pred_hidden; 4*hidden output =
             // concatenated (i, f, g, o) gates.

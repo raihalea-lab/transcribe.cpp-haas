@@ -115,6 +115,11 @@ Bucket classify_tensor(const std::string & name, int64_t ne0) {
         name == "dec.norm.weight") {
         return Bucket::Norm;
     }
+    // Parakeet KDA predictor (Haas): per-head decay rate and gate bias,
+    // added into F32 activations; the loader requires F32.
+    if (starts_with(name, "pred.kda.") && (ends_with(name, ".A_log") || ends_with(name, ".dt_bias"))) {
+        return Bucket::Norm;
+    }
     // Per-head positional biases — added directly to fp32 q via ggml_add
     // inside rel_pos_mhsa.
     if (ends_with(name, ".pos_bias_u") || ends_with(name, ".pos_bias_v")) {
