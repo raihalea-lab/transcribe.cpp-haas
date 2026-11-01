@@ -55,6 +55,10 @@ transcribe::parakeet::read_parakeet_hparams):
                         subsampling_factor,subsampling_channels,
                         pos_emb_max_len,use_bias}
   stt.parakeet.predictor.{hidden,n_layers,vocab}
+  stt.parakeet.predictor.kind = "kda"     (KDA prediction network, Haas only;
+                                           absent = LSTM)
+  stt.parakeet.predictor.kda.{num_heads,head_dim,conv_size,final_norm,
+                              norm_eps,o_norm_eps}       (kind = "kda")
   stt.parakeet.joint.{hidden,num_extra_outputs,activation}
   stt.parakeet.tdt.{durations,max_symbols}
   stt.frontend.{type,num_mels,sample_rate,n_fft,win_length,hop_length,
@@ -439,6 +443,29 @@ VARIANT_PROFILES: dict[str, dict] = {
         "license_name": "nvidia-open-model-license",
         "license_link": "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/",
     },
+    # Third Intelligence's Japanese TDT. Encoder, joint and TDT head are
+    # Parakeet's; the prediction network is Kimi Delta Attention
+    # (haas_asr.prednet.KDATransducerDecoder) instead of an LSTM. NeMo can
+    # only build that decoder with the haas_asr package installed, so the
+    # .nemo is always read directly (see load_nemo_archive_only).
+    "Haas-ja-v1.0": {
+        "variant": "haas-ja-v1.0",
+        "display_name": "Haas ja v1.0",
+        "basename": "haas",
+        "version": "v1.0",
+        "size_label": "0.6B",
+        "head_kind": "tdt",
+        "predictor_kind": "kda",
+        "expected_vocab_size": 3072,
+        "languages": ["ja"],
+        "lang_detect": False,
+        "direct_load_only": True,
+        "author": "Third Intelligence",
+        "organization": "third-intelligence",
+        "license": "apache-2.0",
+        "license_name": "Apache License 2.0",
+        "license_link": "https://www.apache.org/licenses/LICENSE-2.0",
+    },
     # Post-trained parakeet-tdt-0.6b-v3 plus a `vad_head`. HF safetensors
     # only (F16 at rest, upcast to F32); see load_hf_safetensors_model().
     "parakeet-ultra": {
@@ -629,6 +656,32 @@ def load_nemo_model(model_spec: str, prefer_direct: bool = False):
         )
 
     print(f"  loading directly from .nemo: {nemo_path}")
+    cfg, sd, sp_proto = _load_nemo_archive_directly(nemo_path)
+    return _DirectNemoArchive(cfg, sd, sp_proto)
+
+
+def load_nemo_archive_only(model_spec: str, revision: str | None = None):
+    """Read a .nemo without instantiating NeMo classes: a local .nemo, a
+    cached HF snapshot, or the repo's .nemo downloaded with huggingface_hub.
+    For checkpoints whose modules NeMo cannot build by itself (Haas)."""
+    local = Path(model_spec).expanduser()
+    nemo_path: Path | None = None
+    if local.is_file() and local.suffix == ".nemo":
+        nemo_path = local
+    elif local.is_dir():
+        nemo_path = next(iter(sorted(local.glob("*.nemo"))), None)
+    else:
+        nemo_path = _find_cached_nemo(model_spec)
+        if nemo_path is None:
+            from huggingface_hub import hf_hub_download, list_repo_files
+
+            names = [n for n in list_repo_files(model_spec, revision=revision) if n.endswith(".nemo")]
+            if len(names) != 1:
+                raise RuntimeError(f"{model_spec}: expected one .nemo in the repo, found {names}")
+            nemo_path = Path(hf_hub_download(model_spec, names[0], revision=revision))
+    if nemo_path is None or not nemo_path.exists():
+        raise RuntimeError(f"could not find a .nemo archive for {model_spec!r}")
+    print(f"Loading Parakeet directly from .nemo: {nemo_path}")
     cfg, sd, sp_proto = _load_nemo_archive_directly(nemo_path)
     return _DirectNemoArchive(cfg, sd, sp_proto)
 
@@ -1398,6 +1451,98 @@ def resolve_runtime_hparams(hp: dict, model, config: dict, head_kind: str) -> No
 
 
 # ---------------------------------------------------------------------------
+# KDA prediction network (Haas)
+# ---------------------------------------------------------------------------
+#
+# haas_asr.prednet.KDAPredictionNetwork sits where NeMo's LSTM does
+# (decoder.prediction.dec_rnn): blocks `layers.{i}` (fla 0.5.2
+# KimiDeltaAttention) with pre-norms `norms.{i}` and an optional
+# `final_norm`. Config keys live next to NeMo's in decoder.prednet:
+# kda_num_heads, kda_head_dim, kda_expand_v, kda_conv_size, kda_final_norm.
+#
+# GGUF names are chosen so tools/transcribe-quantize buckets them right:
+# linears -> Linear, `.conv.` kernels -> Conv (F32/F16), norms/biases and
+# A_log/dt_bias -> F32.
+
+KDA_SRC = "decoder.prediction.dec_rnn"
+
+# (source suffix under {KDA_SRC}.layers.{i}, GGUF suffix under pred.kda.{i})
+KDA_LAYER_TABLE: list[tuple[str, str]] = [
+    ("q_proj.weight",    "q_proj.weight"),
+    ("k_proj.weight",    "k_proj.weight"),
+    ("v_proj.weight",    "v_proj.weight"),
+    ("q_conv1d.weight",  "conv.q.weight"),
+    ("k_conv1d.weight",  "conv.k.weight"),
+    ("v_conv1d.weight",  "conv.v.weight"),
+    ("f_proj.0.weight",  "f_proj.0.weight"),
+    ("f_proj.1.weight",  "f_proj.1.weight"),
+    ("b_proj.weight",    "b_proj.weight"),
+    ("g_proj.0.weight",  "g_proj.0.weight"),
+    ("g_proj.1.weight",  "g_proj.1.weight"),
+    ("g_proj.1.bias",    "g_proj.1.bias"),
+    ("A_log",            "A_log"),
+    ("dt_bias",          "dt_bias"),
+    ("o_norm.weight",    "o_norm.weight"),
+    ("o_proj.weight",    "o_proj.weight"),
+]
+
+# Fixed by haas_asr / fla rather than by the config: the block and final
+# LayerNorms use KDAPredictionNetwork's norm_eps default and the per-head
+# gated RMSNorm uses KimiDeltaAttention's.
+KDA_NORM_EPS = 1e-5
+KDA_O_NORM_EPS = 1e-5
+
+
+def read_kda_hparams(config: dict, sd, hp: dict) -> dict:
+    """Read and cross-check the KDA prednet config against the state_dict."""
+    dec = config["decoder"]
+    pred_cfg = dec.get("prednet") or {}
+    target = str(dec.get("_target_", ""))
+    if not target.endswith("KDATransducerDecoder"):
+        raise ValueError(f"decoder._target_ {target!r} is not haas_asr's KDATransducerDecoder")
+    kda = {
+        "num_heads":  int(pred_cfg["kda_num_heads"]),
+        "head_dim":   int(pred_cfg["kda_head_dim"]),
+        "conv_size":  int(pred_cfg["kda_conv_size"]),
+        "final_norm": bool(pred_cfg["kda_final_norm"]),
+    }
+    if float(pred_cfg["kda_expand_v"]) != 1.0:
+        # ggml_gated_delta_net needs square per-head states (K == V).
+        raise ValueError(f"kda_expand_v={pred_cfg['kda_expand_v']} unsupported (need 1.0)")
+    if pred_cfg.get("normalization_mode") or dec.get("normalization_mode"):
+        raise ValueError("normalization_mode must be null for the KDA prednet")
+    H, NH, K, W = hp["pred_hidden"], kda["num_heads"], kda["head_dim"], kda["conv_size"]
+    Kd = NH * K
+    expect = {
+        "q_proj.weight": (Kd, H), "k_proj.weight": (Kd, H), "v_proj.weight": (Kd, H),
+        "q_conv1d.weight": (Kd, 1, W), "k_conv1d.weight": (Kd, 1, W), "v_conv1d.weight": (Kd, 1, W),
+        "f_proj.0.weight": (K, H), "f_proj.1.weight": (Kd, K), "b_proj.weight": (NH, H),
+        "g_proj.0.weight": (K, H), "g_proj.1.weight": (Kd, K), "g_proj.1.bias": (Kd,),
+        "A_log": (NH,), "dt_bias": (Kd,), "o_norm.weight": (K,), "o_proj.weight": (H, Kd),
+    }
+    assert set(expect) == {src for src, _ in KDA_LAYER_TABLE}
+    for i in range(hp["pred_n_layers"]):
+        for suffix, shape in expect.items():
+            key = f"{KDA_SRC}.layers.{i}.{suffix}"
+            if key not in sd:
+                raise KeyError(f"state_dict missing {key!r}")
+            if tuple(sd[key].shape) != shape:
+                raise ValueError(f"{key}: shape {tuple(sd[key].shape)} != expected {shape}")
+        for conv in ("q_conv1d", "k_conv1d", "v_conv1d"):
+            if f"{KDA_SRC}.layers.{i}.{conv}.bias" in sd:
+                raise ValueError("KDA short-conv bias is not supported (conv_bias=False expected)")
+        for part in ("weight", "bias"):
+            key = f"{KDA_SRC}.norms.{i}.{part}"
+            if tuple(sd[key].shape) != (H,):
+                raise ValueError(f"{key}: shape {tuple(sd[key].shape)} != ({H},)")
+    if f"{KDA_SRC}.layers.{hp['pred_n_layers']}.q_proj.weight" in sd:
+        raise ValueError("state_dict has more KDA blocks than prednet.pred_rnn_layers")
+    if kda["final_norm"] != (f"{KDA_SRC}.final_norm.weight" in sd):
+        raise ValueError("kda_final_norm disagrees with the state_dict")
+    return kda
+
+
+# ---------------------------------------------------------------------------
 # Tensor name mapping
 # ---------------------------------------------------------------------------
 #
@@ -1656,6 +1801,8 @@ def convert(model_spec: str, out_path: Path, repo_id: str | None = None,
         model = load_fermion_model(model_spec, revision)
     elif profile.get("source_format") == "hf_safetensors":
         model = load_hf_safetensors_model(model_spec, revision or profile.get("hf_revision"))
+    elif profile.get("direct_load_only"):
+        model = load_nemo_archive_only(model_spec, revision)
     else:
         model = load_nemo_model(model_spec, prefer_direct=prefer_direct)
 
@@ -1776,6 +1923,11 @@ def convert(model_spec: str, out_path: Path, repo_id: str | None = None,
         )
     hp["enc_use_bias"] = bool(bias_present[0])
     print(f"Encoder use_bias: {hp['enc_use_bias']}")
+
+    predictor_kind = profile.get("predictor_kind", "lstm")
+    kda = read_kda_hparams(config, sd, hp) if predictor_kind == "kda" else None
+    if kda is not None:
+        print(f"Predictor: KDA {hp['pred_n_layers']} blocks, {kda}")
 
     print(f"Writing GGUF to {out_path}")
     writer = gguf_writer(str(out_path), "parakeet")
@@ -1940,6 +2092,14 @@ def convert(model_spec: str, out_path: Path, repo_id: str | None = None,
         writer.add_uint32("stt.parakeet.predictor.hidden",   hp["pred_hidden"])
         writer.add_uint32("stt.parakeet.predictor.n_layers", hp["pred_n_layers"])
         writer.add_uint32("stt.parakeet.predictor.vocab",    hp["pred_vocab"])
+        if kda is not None:
+            writer.add_string("stt.parakeet.predictor.kind",            "kda")
+            writer.add_uint32("stt.parakeet.predictor.kda.num_heads",   kda["num_heads"])
+            writer.add_uint32("stt.parakeet.predictor.kda.head_dim",    kda["head_dim"])
+            writer.add_uint32("stt.parakeet.predictor.kda.conv_size",   kda["conv_size"])
+            writer.add_bool("stt.parakeet.predictor.kda.final_norm",    kda["final_norm"])
+            writer.add_float32("stt.parakeet.predictor.kda.norm_eps",   KDA_NORM_EPS)
+            writer.add_float32("stt.parakeet.predictor.kda.o_norm_eps", KDA_O_NORM_EPS)
 
         writer.add_uint32("stt.parakeet.joint.hidden",            hp["joint_hidden"])
         writer.add_uint32("stt.parakeet.joint.num_extra_outputs", hp["joint_num_extra_outputs"])
@@ -2127,7 +2287,15 @@ def convert(model_spec: str, out_path: Path, repo_id: str | None = None,
     else:
         # predictor: embed + n_lstm_layers * (Wx, Wh, bias).
         add("decoder.prediction.embed.weight", "pred.embed.weight")
-        for i in range(hp["pred_n_layers"]):
+        for i in range(hp["pred_n_layers"] if kda is not None else 0):
+            add(f"{KDA_SRC}.norms.{i}.weight", f"pred.kda.{i}.norm_in.weight")
+            add(f"{KDA_SRC}.norms.{i}.bias",   f"pred.kda.{i}.norm_in.bias")
+            for src, dst in KDA_LAYER_TABLE:
+                add(f"{KDA_SRC}.layers.{i}.{src}", f"pred.kda.{i}.{dst}")
+        if kda is not None and kda["final_norm"]:
+            add(f"{KDA_SRC}.final_norm.weight", "pred.kda.final_norm.weight")
+            add(f"{KDA_SRC}.final_norm.bias",   "pred.kda.final_norm.bias")
+        for i in range(hp["pred_n_layers"] if kda is None else 0):
             add(
                 f"decoder.prediction.dec_rnn.lstm.weight_ih_l{i}",
                 f"pred.lstm.{i}.Wx",
@@ -2181,6 +2349,9 @@ def convert(model_spec: str, out_path: Path, repo_id: str | None = None,
             + hp["pred_n_layers"] * 3               # pred.lstm.{Wx,Wh,bias}
             + len(JOINT_TABLE)
         )
+        if kda is not None:                         # pred.kda.{i}.* (+ final norm)
+            head_tensors += (hp["pred_n_layers"] * (len(KDA_LAYER_TABLE) + 2 - 3)
+                             + (2 if kda["final_norm"] else 0))
     prompt_tensors = len(PROMPT_MLP_TABLE) if has_prompt else 0
     if has_spk_kernels:
         per_spk_layer = len(spk_kernel_table(0)) + (
