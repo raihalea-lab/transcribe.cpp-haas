@@ -32,7 +32,9 @@
   状態の持ち越しを壊す変異を入れると失敗することも確認済み。
 - transcribe.cpp 既存のテスト 62 件はすべて通過（LSTM の Parakeet は従来どおり）。
 - Q8_0 では予測ネット出力に rms 約 2% の差（線形層の量子化。Parakeet の LSTM と同じ方針）。
-- **実重みでの検証はまだ**（作業したクラウド環境から Hugging Face に接続できなかったため）。下の手順 2〜3 で行う。
+- 実重み（bf16 の `.nemo`）で変換・書き起こしを確認済み: `samples/ja.wav` →
+  「うちの中学は弁当制で、持って行けない場合は、五十円の学校販売のパンを買う。」（M3 / Metal で実時間の約 40〜50 倍）。
+  句読点は付く。実重みでの数値比較（手順 3、Linux）は任意。
 
 ## 手順（Mac）
 
@@ -88,7 +90,7 @@ haas/hex/update.sh --ref dev
 ```
 
 - `--ref` を省くと最新リリース（`vX.Y.Z` タグ）。ただし **2026-11-01 時点の最新リリース v3.1.1 には
-  「Labs › Use your own speech model」（anomalyco/hex#759）がまだ入っていない**ので、それを含むリリースが出るまでは `--ref dev`。
+  GGUF の取り込み機能（anomalyco/hex#759、`dev` では Labs を卒業して常に有効）がまだ入っていない**ので、それを含むリリースが出るまでは `--ref dev`。
 - 中身: transcribe.cpp のビルドとテスト（初回は `samples/ja*.wav` の書き起こしを `~/haas-hex/golden/` に保存、以後はそれと比較）
   → Hex のビルド（`HEX_RELEASE_UNSIGNED=1 HEX_LOCAL_BUILD=1 scripts/build-app.sh`: 名前 Hex / bundle `anomaly.hex` / 更新チェックなし）
   → 「Hex Local」で署名し直し（`HexMicrophone.driver` → `scrawl-helper` → アプリ本体、公式の `sign-macos.sh` と同じ順序・entitlements）
@@ -98,7 +100,17 @@ haas/hex/update.sh --ref dev
 
 ### 5. Hex で Haas を選ぶ
 
-Settings → Labs → **Use your own speech model** を ON → モデル選択の **Add model file…** → `~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf`。
+音声モデルの選択画面 → 下の **「ほかに N 個のモデル」** → 全モデル一覧のヘッダー右上 **「モデルファイルを追加…」**
+→ `~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf`（ファイル選択で `Cmd+Shift+G` にパスを貼る）→ 追加された「Haas ja v1.0」を **使用**。
+
+ターミナルからでも同じです（表示された `custom-…` の ID を `use` に渡す）:
+
+```bash
+/Applications/Hex.app/Contents/MacOS/hex model import ~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf --name "Haas ja v1.0"
+/Applications/Hex.app/Contents/MacOS/hex model use <custom-… の ID>
+```
+
+2026-11-02 に M3 Mac で、この手順で Hex（dev, 3.2.0）に取り込み、日本語の音声入力ができることを確認済み。
 
 ## 更新（Hex の新しいリリースに追従）
 
