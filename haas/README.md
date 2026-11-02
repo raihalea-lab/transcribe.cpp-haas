@@ -37,6 +37,8 @@
 ## 手順（Mac）
 
 前提: Xcode（コマンドラインツール含む）、Rust（rustup）、CMake、jq、[uv](https://docs.astral.sh/uv/)、git。
+足りないものはスクリプトが最初に教えてくれます。Homebrew があれば CMake と jq は `brew install cmake jq`、
+Rust は `curl https://sh.rustup.rs -sSf | sh`。
 
 ```bash
 git clone https://github.com/raihalea-lab/transcribe.cpp-haas ~/haas-hex/transcribe.cpp && cd ~/haas-hex/transcribe.cpp

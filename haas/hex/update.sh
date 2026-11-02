@@ -29,6 +29,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+need git cmake cargo jq c++
+[ "$(uname)" = Darwin ] && need xcrun
 fetch_hex
 [ -n "$ref" ] || ref=$(latest_hex_tag)
 if git -C "$HEX_DIR" rev-parse -q --verify "refs/tags/$ref^{commit}" >/dev/null; then

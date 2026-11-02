@@ -14,6 +14,24 @@ SIGN_IDENTITY=${HAAS_SIGN_IDENTITY:-Hex Local}
 die() { echo "error: $*" >&2; exit 1; }
 say() { echo "==> $*" >&2; }
 
+# need <command>...: stop with install hints when any is missing.
+need() {
+  local missing=() c
+  for c in "$@"; do command -v "$c" >/dev/null 2>&1 || missing+=("$c"); done
+  [ ${#missing[@]} = 0 ] && return 0
+  echo "error: missing ${missing[*]}. Install with:" >&2
+  for c in "${missing[@]}"; do
+    case "$c" in
+      cmake | jq) echo "  brew install $c        (or: uv tool install $c)" >&2 ;;
+      cargo) echo "  curl https://sh.rustup.rs -sSf | sh   (Rust via rustup)" >&2 ;;
+      uv) echo "  curl -LsSf https://astral.sh/uv/install.sh | sh" >&2 ;;
+      c++ | xcrun) echo "  xcode-select --install   (Xcode for the Hex app build)" >&2 ;;
+      *) echo "  $c" >&2 ;;
+    esac
+  done
+  exit 1
+}
+
 # The newest Hex release tag (vX.Y.Z; no prereleases).
 latest_hex_tag() {
   git ls-remote --tags --refs "$HEX_UPSTREAM" 'v*' \
