@@ -128,10 +128,67 @@ haas/hex/update.sh --push     # 成功したら rebase 後のブランチを ori
 
 ## Windows（GPU なしのノート）
 
-Git Bash から `haas/hex/update.sh --ref dev`（`haas/hex/build-windows.sh` 経由で Hex の `scripts/build-windows.sh` を
-`HEX_LOCAL_BUILD=1` で実行し、`dist/hex-*-windows-x64.exe` を作る）。**まだ Windows で試していません。**
-Hex の Windows ビルドに必要なもの（Rust MSVC、Visual Studio Build Tools、CMake、jq、x86_64 なら Vulkan SDK）が要ります。
-予測ネットはどの環境でも CPU で動きます。
+**まだ Windows で試していません**（スクリプトは Linux 上で書けるところまで確認済み）。
+
+x64 版の Hex は音声認識の重い部分（エンコーダ）を Vulkan で動かします。独立 GPU がなくても、Intel / AMD の内蔵 GPU のドライバが
+Vulkan（`C:\Windows\System32\vulkan-1.dll`）を提供していれば動きます。ARM64 版は CPU だけで動きます。予測ネット（KDA）はどちらでも CPU です。
+
+### 1. 必要なものを入れる（PowerShell、初回のみ）
+
+Hex 本家の `scripts/setup-windows.ps1` と同じ内容です。
+
+```powershell
+winget install --id Git.Git -e
+winget install --id jqlang.jq -e
+winget install --id Kitware.CMake -e
+winget install --id Rustlang.Rustup -e
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Llvm.Clang --includeRecommended"
+winget install --id KhronosGroup.VulkanSDK -e    # x64 のみ
+```
+
+終わったらターミナルを開き直して `rustup default stable`。
+
+### 2. このリポジトリとモデルを置く（Git Bash）
+
+```bash
+git clone -c core.autocrlf=false https://github.com/raihalea-lab/transcribe.cpp-haas ~/haas-hex/transcribe.cpp
+```
+
+モデルは Mac の `~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf` を、Windows の `C:\Users\<ユーザー名>\haas-hex\models\` にコピー
+（Windows で `haas/convert.sh` を使って作り直してもよいが、コピーが早い）。
+
+### 3. ビルドしてインストール
+
+- **x64**: Git Bash で
+
+  ```bash
+  cd ~/haas-hex/transcribe.cpp && haas/hex/update.sh --ref dev
+  ```
+
+- **ARM64**: スタートメニューの「Developer PowerShell for VS 2022」で `& "C:\Program Files\Git\bin\bash.exe" -l` を実行してから同じコマンド
+  （ggml の ARM 向けコードは MSVC を受け付けないので clang-cl を使う）。
+
+初回は 30〜60 分ほどかかる見込み。中身は Mac と同じ流れで、最後に次を行います。
+
+- `%LOCALAPPDATA%\Programs\Hex-Haas\hex.exe` に置き、スタートメニューに「Hex (Haas)」を作る
+- 動いている Hex（公式版を含む）を終了させてから起動する
+- 自動アップデートはオフ（`HEX_LOCAL_BUILD=1`）
+
+公式の Hex が入っていると「アンインストールして」と表示されます。設定 › アプリ › Hex から外してください。設定・履歴・モデル（`%APPDATA%\hex`）は残ります。
+公式インストーラは手元ビルドを入れられない（常に公式版をダウンロードする）ので、この形にしています。
+
+Windows ではビルド後、transcribe.cpp の単体テストは飛ばし（本家も Windows では CI で回していない）、書き起こしの比較だけを行います。
+
+### 4. Hex で Haas を選ぶ
+
+Mac と同じく、モデル選択 → 「ほかに N 個のモデル」→「モデルファイルを追加…」。またはコマンドで:
+
+```bash
+"$LOCALAPPDATA/Programs/Hex-Haas/hex.exe" model import ~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf --name "Haas ja v1.0"
+"$LOCALAPPDATA/Programs/Hex-Haas/hex.exe" model use <表示された custom-… の ID>
+```
+
+ログイン時に起動したい場合は Hex の設定で「Launch at login」を ON（この exe が登録されます）。既定のショートカットは `Ctrl+Space`。
 
 ## メモ
 

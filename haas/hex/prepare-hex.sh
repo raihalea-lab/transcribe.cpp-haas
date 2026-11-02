@@ -20,8 +20,8 @@ pin=$(hex_pinned_rev "$manifest")
 path=$(native_path "$tc")
 src='https://github.com/anomalyco/transcribe.cpp'
 sed -i.bak \
-  -e "s|^transcribe-cpp = { git = \"$src\", rev = \"$pin\" }\$|transcribe-cpp = { path = \"$path/bindings/rust/transcribe-cpp\" }|" \
-  -e "s|^transcribe-cpp-sys = { git = \"$src\", rev = \"$pin\" }\$|transcribe-cpp-sys = { path = \"$path\" }|" \
+  -e "s|^transcribe-cpp = { git = \"$src\", rev = \"$pin\" }|transcribe-cpp = { path = \"$path/bindings/rust/transcribe-cpp\" }|" \
+  -e "s|^transcribe-cpp-sys = { git = \"$src\", rev = \"$pin\" }|transcribe-cpp-sys = { path = \"$path\" }|" \
   "$manifest"
 rm -f "$manifest.bak"
 [ "$(grep -c "^transcribe-cpp\(-sys\)\? = { path = " "$manifest")" = 2 ] || die "could not rewrite the transcribe.cpp patch in $manifest"

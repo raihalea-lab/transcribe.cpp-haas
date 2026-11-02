@@ -15,10 +15,30 @@ jobs=$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null 
 
 say "building transcribe.cpp $(git -C "$tc" rev-parse --short HEAD)"
 log="$build.log"
-{ cmake -S "$tc" -B "$build" -DCMAKE_BUILD_TYPE=Release -DTRANSCRIBE_BUILD_TOOLS=ON &&
-  cmake --build "$build" -j "$jobs"; } >"$log" 2>&1 || { tail -40 "$log" >&2; die "build failed (log: $log)"; }
-say "running transcribe.cpp's tests"
-(cd "$build" && ctest -j "$jobs" --output-on-failure) >"$log" 2>&1 || { tail -60 "$log" >&2; die "transcribe.cpp tests failed (log: $log)"; }
+configure=(-DCMAKE_BUILD_TYPE=Release -DTRANSCRIBE_BUILD_TOOLS=ON)
+targets=()
+if is_windows; then
+  # Only the CLI: upstream runs its C++ tests on Linux and macOS, not under
+  # MSVC. ARM64 needs clang-cl (ggml's ARM CPU code refuses MSVC).
+  targets=(--target transcribe-cli)
+  configure+=(-DTRANSCRIBE_BUILD_TESTS=OFF -DGGML_NATIVE=OFF)
+  if [ "$(windows_arch)" = aarch64 ]; then
+    need clang-cl ninja
+    configure+=(-G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DGGML_OPENMP=OFF)
+  fi
+fi
+{ cmake -S "$tc" -B "$build" "${configure[@]}" &&
+  cmake --build "$build" --config Release -j "$jobs" ${targets[@]+"${targets[@]}"}; } >"$log" 2>&1 ||
+  { tail -40 "$log" >&2; die "build failed (log: $log)"; }
+if is_windows; then
+  say "skipping transcribe.cpp's unit tests on Windows"
+else
+  say "running transcribe.cpp's tests"
+  (cd "$build" && ctest -C Release -j "$jobs" --output-on-failure) >"$log" 2>&1 ||
+    { tail -60 "$log" >&2; die "transcribe.cpp tests failed (log: $log)"; }
+fi
+cli="$build/bin/transcribe-cli"
+[ -x "$cli" ] || [ -x "$cli.exe" ] || cli="$build/bin/Release/transcribe-cli"  # Visual Studio generator
 
 model=${HAAS_MODEL:-$HAAS_HOME/models/Haas-ja-v1.0-Q8_0.gguf}
 if [ ! -f "$model" ]; then
@@ -31,7 +51,7 @@ status=0
 for sample in ja.wav ja-short.wav fleurs-ja.wav; do
   [ -f "$tc/samples/$sample" ] || continue
   out=$(mktemp)
-  "$build/bin/transcribe-cli" -q --timestamps none -m "$model" -o "$out" "$tc/samples/$sample" >"$log" 2>&1 ||
+  "$cli" -q --timestamps none -m "$model" -o "$out" "$tc/samples/$sample" >"$log" 2>&1 ||
     { cat "$log" >&2; die "transcribe-cli failed on $sample"; }
   ref="$golden/$(basename "$model" .gguf).${sample%.wav}.txt"
   if [ ! -f "$ref" ]; then

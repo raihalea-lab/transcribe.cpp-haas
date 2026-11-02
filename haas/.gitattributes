@@ -1,0 +1,4 @@
+# Scripts run in Git Bash on Windows too: keep LF whatever core.autocrlf says.
+*.sh text eol=lf
+*.py text eol=lf
+BASE text eol=lf

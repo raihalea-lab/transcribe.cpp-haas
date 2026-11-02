@@ -29,7 +29,19 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-need git cmake cargo jq c++
+if is_windows; then
+  need git cmake cargo jq powershell
+  if [ "$(windows_arch)" = x86_64 ]; then
+    [ -n "${VULKAN_SDK:-}" ] ||
+      die "x64 Hex builds ggml's Vulkan backend: winget install --id KhronosGroup.VulkanSDK -e, then open a new Git Bash"
+    [ -f "$(cygpath -u "${SYSTEMROOT:-C:\\Windows}")/System32/vulkan-1.dll" ] ||
+      die "no vulkan-1.dll: x64 Hex needs a graphics driver with Vulkan (a current Intel, AMD or NVIDIA driver)"
+  else
+    need clang-cl ninja
+  fi
+else
+  need git cmake cargo jq c++
+fi
 if [ "$(uname)" = Darwin ]; then
   need xcrun
   xcrun --find actool >/dev/null 2>&1 ||
