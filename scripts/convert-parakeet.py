@@ -1313,7 +1313,10 @@ def read_hparams(config: dict) -> dict:
         "fe_hop_length":   hop_length,
         "fe_window":       str(pre["window"]),
         "fe_normalize":    canonicalize_normalize(pre["normalize"]),
-        "fe_dither":       float(pre["dither"]),
+        # Haas-ja-v1.0's cfg omits dither; NeMo then uses its class default
+        # (AudioToMelSpectrogramPreprocessor dither=1e-5). The C++ frontend
+        # only range-checks it.
+        "fe_dither":       float(pre.get("dither", 1e-5)),
         "fe_pre_emphasis": 0.97,
         "fe_f_min":        0.0,
         "fe_f_max":        float(sample_rate) / 2.0,
