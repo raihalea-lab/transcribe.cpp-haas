@@ -30,7 +30,11 @@ while [ $# -gt 0 ]; do
 done
 
 need git cmake cargo jq c++
-[ "$(uname)" = Darwin ] && need xcrun
+if [ "$(uname)" = Darwin ]; then
+  need xcrun
+  xcrun --find actool >/dev/null 2>&1 ||
+    die "Hex's app build needs Xcode itself (actool), not only the command line tools: install Xcode, then sudo xcode-select -s /Applications/Xcode.app"
+fi
 fetch_hex
 [ -n "$ref" ] || ref=$(latest_hex_tag)
 if git -C "$HEX_DIR" rev-parse -q --verify "refs/tags/$ref^{commit}" >/dev/null; then
