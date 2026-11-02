@@ -1757,7 +1757,11 @@ def tensor_to_fp32_numpy(t) -> np.ndarray:
 
     if not isinstance(t, torch.Tensor):
         raise TypeError(f"expected torch.Tensor, got {type(t).__name__}")
-    if t.dtype != torch.float32:
+    if t.dtype in (torch.bfloat16, torch.float16):
+        # Haas-ja-v1.0 ships bf16 weights. Widening is exact: every bf16 /
+        # fp16 value is an fp32 value.
+        t = t.float()
+    elif t.dtype != torch.float32:
         raise ValueError(f"expected fp32 tensor, got {t.dtype}")
     arr = t.detach().cpu().numpy()
     return np.ascontiguousarray(arr)
