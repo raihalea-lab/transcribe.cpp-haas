@@ -39,9 +39,11 @@
 前提: Xcode（コマンドラインツール含む）、Rust（rustup）、CMake、jq、[uv](https://docs.astral.sh/uv/)、git。
 
 ```bash
-git clone <このフォーク> ~/haas-hex/transcribe.cpp && cd ~/haas-hex/transcribe.cpp
-git checkout haas
+git clone https://github.com/raihalea-lab/transcribe.cpp-haas ~/haas-hex/transcribe.cpp && cd ~/haas-hex/transcribe.cpp
 ```
+
+置き場所は自由です（`ghq get raihalea-lab/transcribe.cpp-haas` でも可）。スクリプトはリポジトリの場所によらず、
+作業用の置き場 `~/haas-hex`（環境変数 `HAAS_HOME` で変更可）にモデルや Hex のビルドを作ります。
 
 ### 1. 署名用の証明書を作る（初回のみ）
 
@@ -65,7 +67,10 @@ build/bin/transcribe-cli -m ~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf samples/ja.
 build/bin/transcribe-cli -m ~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf samples/fleurs-ja.wav
 ```
 
-### 3. 実重みで数値検証（Linux VM、推奨）
+### 3. 実重みで数値検証（Linux VM、任意）
+
+Mac では動きません（参照実装の fla が Triton を必要とし、Triton は macOS 版がない）。Mac では手順 2 の `transcribe-cli` で聞いて確かめれば十分です。
+Haas-ASR を ghq で置いた場合は `HAAS_ASR_SRC="$(ghq root)/github.com/third-intelligence/Haas-ASR/src"` を付けて実行。
 
 ```bash
 git clone https://github.com/third-intelligence/Haas-ASR ../Haas-ASR

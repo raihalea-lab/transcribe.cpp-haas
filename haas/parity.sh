@@ -7,9 +7,12 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/hex/common.sh"
+[ "$(uname)" = Linux ] ||
+  die "parity.sh runs on Linux only (fla needs Triton, which has no macOS build). On a Mac, check the model by ear instead: build/bin/transcribe-cli -m $HAAS_HOME/models/Haas-ja-v1.0-Q8_0.gguf samples/ja.wav"
 repo=$(git -C "$here" rev-parse --show-toplevel)
 src=${1:-third-intelligence/Haas-ja-v1.0}
 gguf=${2:-$HAAS_HOME/models/Haas-ja-v1.0/Haas-ja-v1.0-F32.gguf}
+[ -f "$gguf" ] || die "no GGUF at $gguf: run haas/convert.sh first"
 haas_src=${HAAS_ASR_SRC:-$(dirname "$repo")/Haas-ASR/src}
 [ -f "$haas_src/haas_asr/prednet.py" ] ||
   die "no Haas-ASR at $haas_src (git clone https://github.com/third-intelligence/Haas-ASR, or set HAAS_ASR_SRC)"
