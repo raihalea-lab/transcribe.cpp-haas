@@ -20,7 +20,7 @@
 
 | ファイル | 役割 |
 |---|---|
-| `haas/convert.sh` | HF から `.nemo` を取得 → F32 GGUF → Q8_0 GGUF（Mac / Linux、NeMo・GPU 不要） |
+| `haas/convert.sh` | HF から `.nemo` を取得 → F32 GGUF → Q8_0 GGUF（Mac / Linux / Windows の Git Bash、NeMo・GPU 不要） |
 | `haas/parity.sh` | 実重みで C++ と PyTorch 参照を数値比較（Linux のみ: fla が Triton を要求） |
 | `haas/hex/create-signing-identity.sh` | 自己署名のコード署名証明書「Hex Local」を作る（初回のみ） |
 | `haas/hex/update.sh` | Hex のリリースに追従してビルド・テスト・署名・インストール（下記） |
@@ -38,6 +38,8 @@
 - 実重み（bf16 の `.nemo`）で変換・書き起こしを確認済み: `samples/ja.wav` →
   「うちの中学は弁当制で、持って行けない場合は、五十円の学校販売のパンを買う。」（M3 / Metal で実時間の約 40〜50 倍）。
   句読点は付く。実重みでの数値比較（手順 3、Linux）は任意。
+- Windows 11（x64、NVIDIA GPU）でも、Hex v3.3.0 に取り込んで日本語の音声入力ができることを確認済み（2026-11-04）。
+  `transcribe-cli`（CPU）での `samples/ja.wav` は Mac と同じ書き起こしで、実時間の約 12 倍。
 
 ## 手順（Mac）
 
@@ -89,11 +91,11 @@ haas/parity.sh third-intelligence/Haas-ja-v1.0 ~/haas-hex/models/Haas-ja-v1.0-Q8
 ### 4. Hex をビルドしてインストール
 
 ```bash
-haas/hex/update.sh --ref dev
+haas/hex/update.sh
 ```
 
-- `--ref` を省くと最新リリース（`vX.Y.Z` タグ）。ただし **2026-11-01 時点の最新リリース v3.1.1 には
-  GGUF の取り込み機能（anomalyco/hex#759、`dev` では Labs を卒業して常に有効）がまだ入っていない**ので、それを含むリリースが出るまでは `--ref dev`。
+- 最新リリース（`vX.Y.Z` タグ）を使う。GGUF の取り込み機能（anomalyco/hex#759）は v3.3.0 から入っている。
+  `--ref dev` などで別の ref も選べる（その ref が固定する transcribe.cpp が `haas/BASE` と違えば、Haas のコミットを自動で rebase する）。
 - 中身: transcribe.cpp のビルドとテスト（初回は `samples/ja*.wav` の書き起こしを `~/haas-hex/golden/` に保存、以後はそれと比較）
   → Hex のビルド（`HEX_RELEASE_UNSIGNED=1 HEX_LOCAL_BUILD=1 scripts/build-app.sh`: 名前 Hex / bundle `anomaly.hex` / 更新チェックなし）
   → 「Hex Local」で署名し直し（`HexMicrophone.driver` → `scrawl-helper` → アプリ本体、公式の `sign-macos.sh` と同じ順序・entitlements）
@@ -113,7 +115,7 @@ haas/hex/update.sh --ref dev
 /Applications/Hex.app/Contents/MacOS/hex model use <custom-… の ID>
 ```
 
-2026-11-02 に M3 Mac で、この手順で Hex（dev, 3.2.0）に取り込み、日本語の音声入力ができることを確認済み。
+2026-11-02 に M3 Mac で、この手順で Hex（dev, 3.2.0）に取り込み、日本語の音声入力ができることを確認済み（当時はリリースに取り込み機能がなく `--ref dev`）。
 
 ## 更新（Hex の新しいリリースに追従）
 
@@ -129,9 +131,9 @@ haas/hex/update.sh --push     # 成功したら rebase 後のブランチを ori
 
 書き起こしが変わったと言われたら、聞いて確かめ、問題なければ表示されたファイルを消して再実行（新しい書き起こしが保存される）。
 
-## Windows（GPU なしのノート）
+## Windows
 
-**まだ Windows で試していません**（スクリプトは Linux 上で書けるところまで確認済み）。
+2026-11-04 に Windows 11 x64（NVIDIA GPU のデスクトップ）で、この手順で音声入力まで確認済み。GPU なしのノート・ARM64 は未確認。
 
 x64 版の Hex は音声認識の重い部分（エンコーダ）を Vulkan で動かします。独立 GPU がなくても、Intel / AMD の内蔵 GPU のドライバが
 Vulkan（`C:\Windows\System32\vulkan-1.dll`）を提供していれば動きます。ARM64 版は CPU だけで動きます。予測ネット（KDA）はどちらでも CPU です。
@@ -147,9 +149,17 @@ winget install --id Kitware.CMake -e
 winget install --id Rustlang.Rustup -e
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Llvm.Clang --includeRecommended"
 winget install --id KhronosGroup.VulkanSDK -e    # x64 のみ
+winget install --id astral-sh.uv -e              # Windows でモデルを変換するときだけ
 ```
 
-終わったらターミナルを開き直して `rustup default stable`。
+終わったら **ターミナルをすべて閉じて** 開き直し（Vulkan SDK が設定する `VULKAN_SDK` は新しいターミナルにしか入らない）、`rustup default stable`。
+
+以下のコマンドは Git for Windows の **Git Bash**（スタートメニューの「Git Bash」、プロンプトに `MINGW64` と出る）で実行します。
+PowerShell や、`C:\Windows\System32\bash.exe`（WSL の bash）では動きません。確認:
+
+```bash
+cargo --version && echo "$VULKAN_SDK" && uname -s   # cargo のバージョン、C:\VulkanSDK\…、MINGW64_NT-… が出れば OK
+```
 
 ### 2. このリポジトリとモデルを置く（Git Bash）
 
@@ -157,15 +167,21 @@ winget install --id KhronosGroup.VulkanSDK -e    # x64 のみ
 git clone -c core.autocrlf=false https://github.com/raihalea-lab/transcribe.cpp-haas ~/haas-hex/transcribe.cpp
 ```
 
-モデルは Mac の `~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf` を、Windows の `C:\Users\<ユーザー名>\haas-hex\models\` にコピー
-（Windows で `haas/convert.sh` を使って作り直してもよいが、コピーが早い）。
+モデルは Mac の `~/haas-hex/models/Haas-ja-v1.0-Q8_0.gguf` を、Windows の `C:\Users\<ユーザー名>\haas-hex\models\` にコピー。
+Mac に無ければ Windows で変換する（uv が必要。`.nemo` と PyTorch で数 GB のダウンロード）:
+
+```bash
+cd ~/haas-hex/transcribe.cpp && haas/convert.sh
+```
+
+次の手順の前にモデルを置いておくと、ビルド後に `samples/ja*.wav` の書き起こしも確認される。
 
 ### 3. ビルドしてインストール
 
 - **x64**: Git Bash で
 
   ```bash
-  cd ~/haas-hex/transcribe.cpp && haas/hex/update.sh --ref dev
+  cd ~/haas-hex/transcribe.cpp && haas/hex/update.sh
   ```
 
 - **ARM64**: スタートメニューの「Developer PowerShell for VS 2022」で `& "C:\Program Files\Git\bin\bash.exe" -l` を実行してから同じコマンド
@@ -181,6 +197,10 @@ git clone -c core.autocrlf=false https://github.com/raihalea-lab/transcribe.cpp-
 公式インストーラは手元ビルドを入れられない（常に公式版をダウンロードする）ので、この形にしています。
 
 Windows ではビルド後、transcribe.cpp の単体テストは飛ばし（本家も Windows では CI で回していない）、書き起こしの比較だけを行います。
+
+日本語版の Windows で `transcribe-cli` を直接動かすと、書き起こしが文字化けして見えます（UTF-8 の出力をコンソールが
+CP932 で表示するため。中身は正しい）。読める形で確かめるには、先に `chcp.com 65001` を実行するか、`-o out.txt` でファイルに書き出します。
+Visual Studio のジェネレータでビルドした `transcribe-cli.exe` は `build/bin/Release/` にあります。
 
 ### 4. Hex で Haas を選ぶ
 
