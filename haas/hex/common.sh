@@ -42,6 +42,7 @@ need() {
         jq) echo "  winget install --id jqlang.jq -e" >&2 ;;
         cmake) echo "  winget install --id Kitware.CMake -e" >&2 ;;
         cargo) echo "  winget install --id Rustlang.Rustup -e   (then, in a new terminal: rustup default stable)" >&2 ;;
+        uv) echo "  winget install --id astral-sh.uv -e" >&2 ;;
         clang-cl | ninja) echo "  run this from \"Developer PowerShell for VS 2022\" (bash -l), with VS Build Tools' clang (see haas/README.md)" >&2 ;;
         *) echo "  $c" >&2 ;;
       esac

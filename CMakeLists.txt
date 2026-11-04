@@ -417,6 +417,12 @@ if(MSVC)
     if(NOT CMAKE_CXX_FLAGS MATCHES "/EHs")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHs")
     endif()
+    # Read the sources as UTF-8. Without /utf-8, MSVC on a Japanese (or other
+    # CJK) Windows reads them in the ANSI code page (932): a comment ending in
+    # a UTF-8 character such as "▁" swallows the newline, and the next line
+    # becomes part of the comment (src/arch/canary/model.cpp fails with C2146).
+    # ggml sets this for its own targets only; this covers src/ and tools/.
+    add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>")
 endif()
 
 # Windows: MSVC STL 17.10 made std::mutex's constructor constexpr, and binaries

@@ -75,7 +75,7 @@ case "$(uname -s)" in
   Darwin)
     if [ "$install" = 1 ]; then "$here/build-macos.sh"; else "$here/build-macos.sh" --no-install; fi ;;
   MINGW64* | MSYS*)
-    "$here/build-windows.sh" ;;
+    if [ "$install" = 1 ]; then "$here/build-windows.sh"; else "$here/build-windows.sh" --no-install; fi ;;
   *)
     say "Hex is prepared in $HEX_DIR; build it there with Hex's own scripts" ;;
 esac

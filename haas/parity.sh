@@ -19,7 +19,7 @@ haas_src=${HAAS_ASR_SRC:-$(dirname "$repo")/Haas-ASR/src}
 
 [ -x "$repo/build/bin/transcribe-cli" ] || {
   cmake -S "$repo" -B "$repo/build" -DCMAKE_BUILD_TYPE=Release -DTRANSCRIBE_BUILD_TOOLS=ON >/dev/null
-  cmake --build "$repo/build" -j --target transcribe-cli transcribe-quantize >/dev/null
+  cmake --build "$repo/build" -j "$(nproc)" --target transcribe-cli transcribe-quantize >/dev/null
 }
 "$here/build_parity.sh" "$repo/build" >/dev/null
 
