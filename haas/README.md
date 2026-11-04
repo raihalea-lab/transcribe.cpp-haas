@@ -4,6 +4,9 @@
 [Haas-ja-v1.0](https://huggingface.co/third-intelligence/Haas-ja-v1.0)（Third Intelligence, Apache-2.0）を使うための、
 [anomalyco/transcribe.cpp](https://github.com/anomalyco/transcribe.cpp) の自分用フォークです。本家への PR は出しません。
 
+> 個人用の非公式フォークです。transcribe.cpp・Hex・Haas の各開発元（handy-computer、anomalyco、Third Intelligence）とは関係がなく、
+> サポートもありません。モデルの重みは含みません。
+
 ## 構成
 
 - ブランチ `haas` = Hex が固定している transcribe.cpp のコミット（`haas/BASE` に記録）+ Haas 対応のコミット。
@@ -197,3 +200,14 @@ Mac と同じく、モデル選択 → 「ほかに N 個のモデル」→「�
 - Hex の語彙（vocabulary）は、TDT モデルでは書き起こし後のリスコアリングで、KDA でもそのまま動きます（合成モデルで動作確認のみ）。
 - 自己署名だと画面収録用の仮想マイク（`HexMicrophone.driver`）は読み込まれない可能性があります（音声入力には不要）。
 - 公式 Hex に戻すには、公式の DMG から入れ直します。
+
+## ライセンスと出典
+
+- このリポジトリ（Haas 対応の変更と `haas/` を含む）は、元の transcribe.cpp と同じ MIT License（ルートの `LICENSE`）。
+- **Haas-ja-v1.0**（[third-intelligence/Haas-ja-v1.0](https://huggingface.co/third-intelligence/Haas-ja-v1.0)、Third Intelligence）は Apache-2.0。
+  重みはここには含まず、`haas/convert.sh` が利用時に取得します。変換した GGUF（Apache-2.0 の派生物）を人に配る場合は、
+  Apache-2.0 のライセンス文を添え、変換したことを明記してください（GGUF の `general.license` にも `apache-2.0` を書き込んでいます）。
+- **Haas-ASR**（Apache-2.0）と **flash-linear-attention**（MIT）は、数値検証のときに実行時に読み込むだけで、同梱していません。
+  `haas/kda_reference.py` で GPU 専用カーネルの代わりに使う短い関数は、flash-linear-attention 0.5.2 の実装に沿ったものです
+  （MIT License, Copyright (c) 2023-2026 Songlin Yang, Yu Zhang, Zhiyuan Li）。
+- **Hex**（MIT）のコードは含みません。`haas/hex/` のスクリプトは本家 Hex を取得し、その手順でビルドします。

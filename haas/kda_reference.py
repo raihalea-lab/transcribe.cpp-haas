@@ -15,6 +15,11 @@ are replaced here by torch code taken from fla itself:
 Everything else (projections, rearranges, cache handling, residuals, norms,
 Haas's state packing) is the unmodified upstream code.
 
+The three replacements follow flash-linear-attention 0.5.2
+(https://github.com/fla-org/flash-linear-attention), MIT License,
+Copyright (c) 2023-2026 Songlin Yang, Yu Zhang, Zhiyuan Li. fla itself and
+Haas-ASR (Apache-2.0) are imported at run time, not included here.
+
 Needs: torch, einops, transformers, flash-linear-attention==0.5.2 and a
 Haas-ASR checkout (HAAS_ASR_SRC or --haas-src, the directory holding
 haas_asr/). NeMo is not needed: prednet.py only subclasses NeMo's
