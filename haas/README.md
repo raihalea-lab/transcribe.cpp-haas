@@ -94,8 +94,10 @@ haas/parity.sh third-intelligence/Haas-ja-v1.0 ~/haas-hex/models/Haas-ja-v1.0-Q8
 haas/hex/update.sh
 ```
 
-- 最新リリース（`vX.Y.Z` タグ）を使う。GGUF の取り込み機能（anomalyco/hex#759）は v3.3.0 から入っている。
+- 最新リリース（`vX.Y.Z` タグ）を使う。GGUF の取り込み機能（anomalyco/hex#759）は v3.2.0 から入っている。
   `--ref dev` などで別の ref も選べる（その ref が固定する transcribe.cpp が `haas/BASE` と違えば、Haas のコミットを自動で rebase する）。
+- Hex のリリースにまだ入っていない修正は `haas/hex/patches/` に置いてあり、ビルド時に自動で当てる（当たらなくなったものは飛ばす）。
+  今あるのは、再起動のたびに取り込んだモデルが使えなくなる不具合の修正（下の「困ったとき」）。
 - 中身: transcribe.cpp のビルドとテスト（初回は `samples/ja*.wav` の書き起こしを `~/haas-hex/golden/` に保存、以後はそれと比較）
   → Hex のビルド（`HEX_RELEASE_UNSIGNED=1 HEX_LOCAL_BUILD=1 scripts/build-app.sh`: 名前 Hex / bundle `anomaly.hex` / 更新チェックなし）
   → 「Hex Local」で署名し直し（`HexMicrophone.driver` → `scrawl-helper` → アプリ本体、公式の `sign-macos.sh` と同じ順序・entitlements）
@@ -212,6 +214,24 @@ Mac と同じく、モデル選択 → 「ほかに N 個のモデル」→「�
 ```
 
 ログイン時に起動したい場合は Hex の設定で「Launch at login」を ON（この exe が登録されます）。既定のショートカットは `Ctrl+Space`。
+
+## 困ったとき
+
+**Mac で再起動したらショートカットが効かない**（`hex status` が `Listener waiting: Waiting for setup` と `model missing`）
+
+Hex 3.3.0 までは、取り込んだモデルを照合するファイル ID にボリューム番号が含まれていて、macOS が起動時にそれを振り直すと
+「別のファイルになった」と判定し、Haas を使わなくなります（`hex model list` にも出なくなる）。その場では次で戻ります
+（ID は `~/Library/Application Support/hex/models/custom/` にある `*.json` のファイル名）。
+
+```bash
+/Applications/Hex.app/Contents/MacOS/hex model repair custom-<ID>
+```
+
+`haas/hex/patches/` の修正入りで `update.sh` からビルドし直せば再発しません。Hex 本家も 2026-11-04 に dev で修正済み
+（anomalyco/hex#1236）で、それを含むリリースが出れば修正ファイルは当たらなくなり、自動で飛ばされます。
+
+**Mac で再起動したら Hex が起動しない**: 公式版の「ログイン時に起動」は公式の署名で登録されているため、自己署名の版に
+置き換えると効かなくなることがあります。Hex の設定で「ログイン時に起動」を一度オフにしてからオンにし直してください。
 
 ## メモ
 

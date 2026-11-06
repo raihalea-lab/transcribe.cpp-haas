@@ -1,0 +1,24 @@
+diff --git a/src/transcription/custom_models.rs b/src/transcription/custom_models.rs
+index 72ecb7aa..08b29903 100644
+--- a/src/transcription/custom_models.rs
++++ b/src/transcription/custom_models.rs
+@@ -145,7 +145,18 @@ impl Receipt {
+     pub(crate) fn holds(&self, metadata: &fs::Metadata) -> bool {
+         self.bytes == metadata.len()
+             && super::models::modified_ns(metadata) == Some(self.modified_ns)
+-            && (self.file_id.is_none() || self.file_id == super::found_models::file_id(metadata))
++            && (self.file_id.is_none() || same_file_id(self.file_id, super::found_models::file_id(metadata)))
++    }
++}
++
++/// macOS can renumber a volume (st_dev) at boot, and `found_models::file_id`
++/// keeps st_dev in its high half: there, compare only the low half (the
++/// inode's), so a reboot doesn't turn every import into a changed file.
++fn same_file_id(recorded: Option<u64>, current: Option<u64>) -> bool {
++    if cfg!(target_os = "macos") {
++        recorded.map(|id| id as u32) == current.map(|id| id as u32)
++    } else {
++        recorded == current
+     }
+ }
+ 

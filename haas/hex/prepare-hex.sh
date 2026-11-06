@@ -26,10 +26,26 @@ sed -i.bak \
 rm -f "$manifest.bak"
 [ "$(grep -c "^transcribe-cpp\(-sys\)\? = { path = " "$manifest")" = 2 ] || die "could not rewrite the transcribe.cpp patch in $manifest"
 
+# Fixes Hex needs and its release doesn't carry yet (haas/hex/patches). One
+# that no longer applies, usually because Hex fixed it its own way, is skipped.
+applied=()
+for patch in "$(cd "$(dirname "$0")" && pwd)"/patches/*.patch; do
+  [ -e "$patch" ] || continue
+  name=$(basename "$patch" .patch)
+  if git -C "$HEX_DIR" apply --check "$patch" 2>/dev/null; then
+    git -C "$HEX_DIR" apply "$patch"
+    applied+=("$name")
+    say "applied $name"
+  else
+    echo "note: $name doesn't apply to Hex $ref (fixed upstream?); skipped" >&2
+  fi
+done
+
 say "updating Cargo.lock for the local transcribe.cpp"
 cargo update --quiet --manifest-path "$manifest" -p transcribe-cpp -p transcribe-cpp-sys
 git -C "$HEX_DIR" commit --quiet -am "Build with Haas transcribe.cpp $(git -C "$tc" rev-parse --short HEAD)
 
 Points [patch.crates-io] transcribe-cpp(-sys) at a local checkout of the
-Haas fork (KDA prediction network) based on ${pin:0:7}."
+Haas fork (KDA prediction network) based on ${pin:0:7}.
+Patches: ${applied[*]:-none}"
 say "Hex $ref ($(git -C "$HEX_DIR" rev-parse --short "$ref^{commit}")) + Haas transcribe.cpp $(git -C "$tc" rev-parse --short HEAD) on branch haas-build"
